@@ -198,7 +198,7 @@ footer { font-size: 0.8rem; color: var(--muted); }
   let actx = null;
   const ctx = () => (actx = actx || new (window.AudioContext || window.webkitAudioContext)());
 
-  async function handleArrayBuffer(buf, label, isExample) {
+  async function handleArrayBuffer(buf, label, isExample, title) {
     setStatus('Listening to ' + label + '…');
     await new Promise(r => setTimeout(r, 30));
     let audio;
@@ -212,8 +212,10 @@ footer { font-size: 0.8rem; color: var(--muted); }
     const { samples, sr } = E.prepare(chans, audio.sampleRate);
     state.track = E.trackPitch(samples, sr);
     state.isExample = isExample;
+    const previousTitle = $('title').value;
+    $('title').value = title; // each new hum gets its own title
     resegment(detail, true);
-    if (!state.notes.length) { setStatus("No clear notes found. Hum a little louder and closer to the mic, then try again.", true); return; }
+    if (!state.notes.length) { $('title').value = previousTitle; setStatus("No clear notes found. Hum a little louder and closer to the mic, then try again.", true); return; }
     setStatus(`Found ${state.notes.length} notes in ${audio.duration.toFixed(1)} s of audio.`);
   }
 
@@ -230,7 +232,7 @@ footer { font-size: 0.8rem; color: var(--muted); }
   $('file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
     setOrig(URL.createObjectURL(f));
-    await handleArrayBuffer(await f.arrayBuffer(), '“' + f.name + '”', false);
+    await handleArrayBuffer(await f.arrayBuffer(), '“' + f.name + '”', false, f.name.replace(/\.[^.]+$/, ''));
     e.target.value = '';
   });
 
@@ -247,7 +249,8 @@ footer { font-size: 0.8rem; color: var(--muted); }
         $('rec').classList.remove('recording'); $('rec-label').textContent = 'Record';
         const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
         setOrig(URL.createObjectURL(blob));
-        await handleArrayBuffer(await blob.arrayBuffer(), 'your recording', false);
+        const when = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        await handleArrayBuffer(await blob.arrayBuffer(), 'your recording', false, 'Hum, ' + when);
       };
       rec.start(); $('rec').classList.add('recording'); $('rec-label').textContent = 'Stop recording';
       setStatus('Recording… hum your melody, then tap Stop recording.');
@@ -293,8 +296,7 @@ footer { font-size: 0.8rem; color: var(--muted); }
   async function loadExample() {
     const wav = exampleWav();
     setOrig(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
-    $('title').value = 'Example: Ode to Joy (hummed)';
-    await handleArrayBuffer(wav, 'the example', true);
+    await handleArrayBuffer(wav, 'the example', true, 'Example: Ode to Joy (hummed)');
     setStatus('Showing the example. Choose your own recording above to replace it.');
   }
   $('demo').addEventListener('click', loadExample);
