@@ -699,6 +699,11 @@ footer { font-size: 0.8rem; color: var(--muted); }
       }
       t += b * beat;
     }
+    return toWav(x, sr);
+  }
+
+  // Turn a list of numbers (-1 to 1) into a .wav file the <audio> player can play.
+  function toWav(x, sr) {
     const buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
     const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
     w(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
@@ -789,24 +794,37 @@ footer { font-size: 0.8rem; color: var(--muted); }
   window.addEventListener('resize', () => state.track && drawTrace());
 
   // ---- playback ----
-  let playing = [];
-  function stop() { playing.forEach(o => { try { o.stop(); } catch (e) {} }); playing = []; }
+  // The score is rendered to a .wav file and played like any other sound. (Web Audio, the
+  // usual way, is muted on iPhone when the ring/silent switch is on silent.)
+  const scorePlayer = new Audio();
+  scorePlayer.setAttribute('playsinline', '');
+  function stop() { scorePlayer.pause(); $('orig').pause(); }
+  function renderScore() {
+    const sr = 22050, sec = 60 / state.s.bpm / 4;
+    const last = state.events[state.events.length - 1];
+    const x = new Float32Array(Math.ceil(((last.pos + last.dur) * sec + 0.5) * sr));
+    for (const e of state.events) {
+      if (e.midi === null) continue;
+      const f = 440 * Math.pow(2, (e.midi - 69) / 12);
+      const n0 = Math.round(e.pos * sec * sr), len = Math.round(e.dur * sec * sr);
+      for (let i = 0; i < len && n0 + i < x.length; i++) {
+        const t = i / sr, ph = 2 * Math.PI * f * t;
+        const env = Math.min(1, t / 0.01) * Math.min(1, (len - i) / sr / 0.03) * (0.35 + 0.65 * Math.exp(-t * 3));
+        // a soft, slightly bright tone: the note plus two quiet overtones
+        x[n0 + i] += 0.3 * env * (Math.sin(ph) - Math.sin(3 * ph) / 9 + Math.sin(5 * ph) / 25);
+      }
+    }
+    return toWav(x, sr);
+  }
   $('play').addEventListener('click', () => {
     if (!state.events.length) return;
     stop();
-    const a = ctx(); a.resume && a.resume();
-    const sec = 60 / state.s.bpm / 4, start = a.currentTime + 0.1;
-    for (const e of state.events) {
-      if (e.midi === null) continue;
-      const o = a.createOscillator(), gn = a.createGain();
-      o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (e.midi - 69) / 12);
-      const t = start + e.pos * sec, d = e.dur * sec;
-      gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(0.25, t + 0.015);
-      gn.gain.exponentialRampToValueAtTime(0.08, t + Math.max(0.05, d * 0.9)); gn.gain.linearRampToValueAtTime(0, t + d);
-      o.connect(gn).connect(a.destination); o.start(t); o.stop(t + d + 0.02); playing.push(o);
-    }
+    if (scorePlayer.src) URL.revokeObjectURL(scorePlayer.src);
+    scorePlayer.src = URL.createObjectURL(new Blob([renderScore()], { type: 'audio/wav' }));
+    scorePlayer.play().catch(() => setStatus("Playback was blocked. Tap Play score again.", true));
   });
   $('stop').addEventListener('click', stop);
+  $('orig').addEventListener('play', () => scorePlayer.pause());
 
   // ---- settings ----
   ['ts', 'grid', 'clef', 'shift'].forEach(id => $(id).addEventListener('change', rebuild));
