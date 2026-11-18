@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hum to Score</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="theme-color" content="#2a52be">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Hum to Score">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: a single column like a sheet of manuscript paper — input at the top, the engraved score as the centrepiece, controls and exports beneath. */
+:root {
+  --paper: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #18202e;
+  --muted: #5b6577;
+  --line: #d8dde6;
+  --accent: #2a52be;
+  --accent-ink: #ffffff;
+  --trace: #d98a1c;
+  --ok: #2e7d4f;
+  --font-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161e; --surface: #1a202b; --ink: #e8ecf3; --muted: #9aa4b6; --line: #2c3442;
+    --accent: #7c9bff; --accent-ink: #0d1220; --trace: #f0a640; --ok: #5cc28a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12161e; --surface: #1a202b; --ink: #e8ecf3; --muted: #9aa4b6; --line: #2c3442;
+  --accent: #7c9bff; --accent-ink: #0d1220; --trace: #f0a640; --ok: #5cc28a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--font-body); }
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 64px; display: grid; gap: 22px; }
+header { display: grid; gap: 6px; }
+h1 { font: 400 clamp(2.2rem, 6vw, 3.2rem)/1 var(--font-display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1 em { color: var(--accent); }
+.lede { margin: 0; color: var(--muted); max-width: 62ch; }
+h2 { font: 600 0.8rem/1 var(--font-body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: grid; gap: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button, .filebtn {
+  font: 500 0.95rem/1 var(--font-body); border-radius: 8px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: inline-flex; align-items: center; gap: 8px;
+}
+button:hover, .filebtn:hover { border-color: var(--accent); }
+button.primary, .filebtn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible, .filebtn:focus-within, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.filebtn { position: relative; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #d23b3b; }
+.recording .rec-dot { animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .recording .rec-dot { animation: none; } }
+.status { font-size: 0.9rem; color: var(--muted); min-height: 1.4em; margin: 0; }
+.status.err { color: #c23a3a; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 500 0.85rem/1 var(--font-body); padding: 7px 10px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.chip b { font-weight: 600; }
+.chip.example { border-color: var(--trace); color: var(--trace); }
+.score-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+#score-title { font: 400 1.6rem/1.15 var(--font-display); margin: 0; text-wrap: balance; }
+.sheet { background: #fff; color: #000; border-radius: 8px; border: 1px solid var(--line); overflow-x: auto; min-height: 140px; padding: 4px 0; }
+.sheet svg { max-width: none; }
+canvas { width: 100%; height: 150px; display: block; border-radius: 8px; background: var(--paper); border: 1px solid var(--line); }
+.legend { font-size: 0.8rem; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 12px; height: 4px; vertical-align: middle; margin-right: 6px; border-radius: 2px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+label { display: grid; gap: 5px; font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+select, input[type="number"], input[type="text"] {
+  font: 400 0.95rem/1.2 var(--font-body); padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); width: 100%;
+}
+.tempo { display: flex; gap: 6px; }
+.tempo button { padding: 9px 10px; font-size: 0.85rem; }
+.hint { font-size: 0.85rem; color: var(--muted); margin: 0; max-width: 65ch; }
+.tips { margin: 0; padding-left: 1.1em; color: var(--muted); font-size: 0.9rem; display: grid; gap: 4px; }
+audio { width: 100%; height: 40px; }
+.ok { color: var(--ok); }
+footer { font-size: 0.8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Hum to <em>Score</em></h1>
+    <p class="lede">Hum a melody, and this turns it into sheet music you can play back, then export as MusicXML and MIDI for MuseScore, Dorico, Sibelius or a DAW.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="in-h">
+    <h2 id="in-h">1 · Your hum</h2>
+    <div class="row">
+      <label class="filebtn primary" for="file">Choose a recording
+        <input id="file" type="file" accept="audio/*,.m4a,.mp3,.wav,.aac,.caf,.webm,.ogg">
+      </label>
+      <button id="rec" type="button"><span class="rec-dot" aria-hidden="true"></span><span id="rec-label">Record</span></button>
+      <button id="demo" type="button">Load the example</button>
+    </div>
+    <p id="status" class="status" role="status"></p>
+    <ul class="tips">
+      <li>Hum one melody on "da" or "doo", steady and not too quiet, in a quiet room.</li>
+      <li>Keep a steady beat. Counting "1, 2, 3, 4" out loud first is fine.</li>
+      <li>On iPhone, use Voice Memos: Settings → Voice Memos → Recording Mode: Stereo, then Audio Quality: Lossless.</li>
+    </ul>
+  </section>
+
+  <section class="panel" aria-labelledby="score-h">
+    <div class="score-head">
+      <h2 id="score-h">2 · Score</h2>
+      <div class="chips" id="chips"></div>
+    </div>
+    <p id="score-title"></p>
+    <div class="sheet" id="sheet" aria-label="Sheet music"></div>
+    <div class="row">
+      <button id="play" type="button" class="primary">▶ Play score</button>
+      <button id="stop" type="button">■ Stop</button>
+    </div>
+    <audio id="orig" controls preload="metadata" aria-label="Your original recording"></audio>
+    <canvas id="trace" aria-label="Pitch trace of the recording, with detected notes"></canvas>
+    <div class="legend"><span><i style="background:var(--trace)"></i>Pitch you hummed</span><span><i style="background:var(--accent)"></i>Notes it heard</span></div>
+  </section>
+
+  <section class="panel" aria-labelledby="set-h">
+    <h2 id="set-h">3 · Adjust</h2>
+    <div class="controls">
+      <label for="title">Title<input id="title" type="text" value="Hummed melody"></label>
+      <label for="bpm">Tempo (quarter = bpm)
+        <span class="tempo"><input id="bpm" type="number" min="30" max="240" step="1" value="100"><button id="half" type="button" title="Half the tempo">½×</button><button id="dbl" type="button" title="Double the tempo">2×</button></span>
+      </label>
+      <label for="ts">Time signature
+        <select id="ts"><option value="4/4">4/4</option><option value="3/4">3/4</option><option value="2/4">2/4</option><option value="6/8">6/8</option></select>
+      </label>
+      <label for="key">Key
+        <select id="key"></select>
+      </label>
+      <label for="grid">Shortest note
+        <select id="grid"><option value="2">Eighth note</option><option value="1">Sixteenth note</option><option value="4">Quarter note</option></select>
+      </label>
+      <label for="detail">Note detection
+        <select id="detail"><option value="0.11">Fewer, longer notes</option><option value="0.07" selected>Balanced</option><option value="0.045">More, shorter notes</option></select>
+      </label>
+      <label for="clef">Clef
+        <select id="clef"><option value="auto">Automatic</option><option value="treble">Treble</option><option value="treble8vb">Treble, octave lower (voice)</option><option value="bass">Bass</option></select>
+      </label>
+      <label for="shift">First note lands on
+        <select id="shift"><option value="0">Beat 1</option><option value="1">Beat 2</option><option value="2">Beat 3</option><option value="3">Beat 4</option></select>
+      </label>
+    </div>
+    <p class="hint">Tempo is guessed from your hum. If the notes look twice as long or short as they should, try ½× or 2×.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="ex-h">
+    <h2 id="ex-h">4 · Take it further</h2>
+    <div class="row">
+      <button id="share" type="button" class="primary" hidden>Share MusicXML + MIDI</button>
+      <button id="dl" type="button" class="primary" hidden>Download MusicXML + MIDI (.zip)</button>
+      <button id="dlxml" type="button" hidden>Download .musicxml</button>
+      <button id="dlmid" type="button" hidden>Download .mid</button>
+      <button id="copy" type="button">Copy MusicXML</button>
+    </div>
+    <p id="ex-status" class="status" role="status"></p>
+    <p class="hint">Open the .musicxml file in MuseScore (free) to edit notes, add harmony and parts. Drop the .mid file into GarageBand, Logic or any DAW to produce it as a track.</p>
+  </section>
+
+  <footer>Everything runs in your browser. Your recording never leaves this page.</footer>
+</main>
+
+<script src="opensheetmusicdisplay.min.js"></script>
+<script>
+// Hum-to-score engine: pitch tracking, note segmentation, tempo/key estimation,
+// quantization, and MusicXML / MIDI / ZIP writers. Runs in the browser and in Node.
+(function (root) {
+  'use strict';
+
+  // ---------- audio prep ----------
+  // Downmix + crude low-pass decimation to ~16 kHz (plenty for a hummed melody).
+  function prepare(channels, sampleRate) {
+    const n = channels[0].length;
+    const mono = new Float32Array(n);
+    for (const ch of channels) for (let i = 0; i < n; i++) mono[i] += ch[i] / channels.length;
+    const factor = Math.max(1, Math.round(sampleRate / 16000));
+    const out = new Float32Array(Math.floor(n / factor));
+    for (let i = 0; i < out.length; i++) {
+      let s = 0;
+      for (let k = 0; k < factor; k++) s += mono[i * factor + k];
+      out[i] = s / factor;
+    }
+    return { samples: out, sr: sampleRate / factor };
+  }
+
+  // ---------- pitch tracking (YIN) ----------
+  function trackPitch(x, sr, opts) {
+    opts = opts || {};
+    const hop = Math.round(sr * 0.01);           // 10 ms
+    const fmin = opts.fmin || 65, fmax = opts.fmax || 1100;
+    const tauMax = Math.ceil(sr / fmin), tauMin = Math.floor(sr / fmax);
+    const W = Math.round(sr * 0.025);             // 25 ms integration window
+    const thresh = opts.threshold || 0.15;
+    const frames = [];
+    const d = new Float32Array(tauMax + 1);
+    for (let start = 0; start + W + tauMax < x.length; start += hop) {
+      // energy
+      let e = 0;
+      for (let i = 0; i < W; i++) e += x[start + i] * x[start + i];
+      const rms = Math.sqrt(e / W);
+      // difference function
+      for (let tau = 1; tau <= tauMax; tau++) {
+        let s = 0;
+        for (let i = 0; i < W; i++) { const v = x[start + i] - x[start + i + tau]; s += v * v; }
+        d[tau] = s;
+      }
+      // cumulative mean normalized difference
+      let run = 0; d[0] = 1;
+      for (let tau = 1; tau <= tauMax; tau++) { run += d[tau]; d[tau] = run > 0 ? d[tau] * tau / run : 1; }
+      let tau = -1;
+      for (let t = Math.max(2, tauMin); t < tauMax; t++) {
+        if (d[t] < thresh) { while (t + 1 < tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
+      }
+      let aper = 1;
+      if (tau < 0) { // fall back to global min, mark low confidence
+        let best = 1e9;
+        for (let t = Math.max(2, tauMin); t < tauMax; t++) if (d[t] < best) { best = d[t]; tau = t; }
+      }
+      aper = d[tau];
+      // parabolic interpolation
+      let ft = tau;
+      if (tau > 1 && tau < tauMax) {
+        const a = d[tau - 1], b = d[tau], c = d[tau + 1];
+        const den = a + c - 2 * b;
+        if (den > 0) ft = tau + 0.5 * (a - c) / den;
+      }
+      const f0 = sr / ft;
+      frames.push({ t: start / sr, rms, f0, aper, midi: 69 + 12 * Math.log2(f0 / 440) });
+    }
+    // voicing decision
+    let maxRms = 0;
+    for (const f of frames) if (f.rms > maxRms) maxRms = f.rms;
+    const gate = Math.max(maxRms * (opts.gate || 0.08), 1e-4);
+    for (const f of frames) f.voiced = f.rms > gate && f.aper < 0.35;
+    // median-smooth the pitch of voiced frames (5 frames)
+    const sm = frames.map(f => f.midi);
+    for (let i = 0; i < frames.length; i++) {
+      if (!frames[i].voiced) continue;
+      const w = [];
+      for (let k = -2; k <= 2; k++) { const f = frames[i + k]; if (f && f.voiced) w.push(f.midi); }
+      w.sort((a, b) => a - b);
+      sm[i] = w[w.length >> 1];
+    }
+    // octave-jump repair: pull values that are ~12 off the local median back
+    frames.forEach((f, i) => { f.midiS = sm[i]; });
+    return { frames, hopSec: hop / sr };
+  }
+
+  // ---------- note segmentation ----------
+  function segment(track, opts) {
+    opts = opts || {};
+    const { frames, hopSec } = track;
+    const minDur = opts.minNoteSec || 0.07;
+    // tuning offset: people rarely hum at A440; find the cents offset that best fits
+    let sx = 0, sy = 0;
+    for (const f of frames) if (f.voiced) {
+      const frac = f.midiS - Math.round(f.midiS);
+      sx += Math.cos(2 * Math.PI * frac); sy += Math.sin(2 * Math.PI * frac);
+    }
+    const tuning = Math.atan2(sy, sx) / (2 * Math.PI); // semitones, -0.5..0.5
+    // per-frame pitch label
+    const lab = frames.map(f => f.voiced ? Math.round(f.midiS - tuning) : null);
+    // run-length encode
+    let segs = [];
+    for (let i = 0; i < lab.length; i++) {
+      const last = segs[segs.length - 1];
+      if (last && last.p === lab[i] && last.end === i) last.end = i + 1;
+      else segs.push({ p: lab[i], start: i, end: i + 1 });
+    }
+    // absorb short voiced blips (glides, scoops) into a neighbour; drop short unvoiced gaps
+    const minFrames = Math.max(1, Math.round(minDur / hopSec));
+    const gapFrames = Math.max(1, Math.round(0.04 / hopSec));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < segs.length; i++) {
+        const s = segs[i], len = s.end - s.start;
+        const isShortVoiced = s.p !== null && len < minFrames;
+        const isShortGap = s.p === null && len < gapFrames && i > 0 && i < segs.length - 1;
+        if (!isShortVoiced && !isShortGap) continue;
+        const prev = segs[i - 1], next = segs[i + 1];
+        let target = null;
+        if (s.p === null) target = prev && next && prev.p === next.p ? prev : null;
+        else {
+          const cands = [prev, next].filter(c => c && c.p !== null);
+          if (cands.length) target = cands.reduce((a, b) => Math.abs(a.p - s.p) <= Math.abs(b.p - s.p) ? a : b);
+        }
+        if (target) {
+          target.start = Math.min(target.start, s.start); target.end = Math.max(target.end, s.end);
+        } else if (s.p !== null) { s.p = null; }
+        else continue;
+        if (target) segs.splice(i, 1);
+        // merge equal neighbours
+        const merged = [];
+        for (const g of segs) {
+          const l = merged[merged.length - 1];
+          if (l && l.p === g.p && l.end >= g.start) l.end = Math.max(l.end, g.end); else merged.push(g);
+        }
+        segs = merged; changed = true; break;
+      }
+    }
+    // split same-pitch notes at clear energy dips (re-articulated "da-da" on one pitch)
+    const out = [];
+    for (const s of segs) {
+      if (s.p === null) continue;
+      let cuts = [s.start];
+      const win = Math.round(0.06 / hopSec);
+      for (let i = s.start + minFrames; i < s.end - minFrames; i++) {
+        let lmax = 0, rmax = 0;
+        for (let k = 1; k <= win; k++) {
+          if (frames[i - k] && i - k >= s.start) lmax = Math.max(lmax, frames[i - k].rms);
+          if (frames[i + k] && i + k < s.end) rmax = Math.max(rmax, frames[i + k].rms);
+        }
+        const r = frames[i].rms;
+        let isMin = true;
+        for (let k = -2; k <= 2; k++) if (frames[i + k] && frames[i + k].rms < r) isMin = false;
+        if (isMin && r < 0.45 * Math.min(lmax, rmax) && i - cuts[cuts.length - 1] >= minFrames) cuts.push(i);
+      }
+      cuts.push(s.end);
+      for (let c = 0; c < cuts.length - 1; c++) {
+        const a = cuts[c], b = cuts[c + 1];
+        let peak = 0;
+        for (let i = a; i < b; i++) peak = Math.max(peak, frames[i].rms);
+        out.push({ midi: s.p, start: frames[a].t, end: frames[b - 1].t + hopSec, peak });
+      }
+    }
+    return { notes: out, tuningCents: Math.round(tuning * 100) };
+  }
+
+  // ---------- tempo ----------
+  // Find the BPM (60–180) whose eighth-note grid best fits the onsets.
+  function estimateTempo(notes) {
+    if (notes.length < 3) return 90;
+    const on = notes.map(n => n.start - notes[0].start);
+    let best = null;
+    for (let bpm = 60; bpm <= 180; bpm += 1) {
+      const g = 60 / bpm / 2; // eighth
+      let err = 0;
+      for (const t of on) { const q = t / g; err += Math.pow(q - Math.round(q), 2); }
+      err /= on.length;
+      // mild preference toward ~100 bpm to avoid half/double-time picks
+      const score = err + 0.02 * Math.pow(Math.log2(bpm / 100), 2);
+      if (!best || score < best.score) best = { bpm, score };
+    }
+    return best.bpm;
+  }
+
+  // ---------- key ----------
+  const KS_MAJ = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];
+  const KS_MIN = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17];
+  function corr(a, b) {
+    const ma = a.reduce((s, v) => s + v, 0) / 12, mb = b.reduce((s, v) => s + v, 0) / 12;
+    let n = 0, da = 0, db = 0;
+    for (let i = 0; i < 12; i++) { n += (a[i] - ma) * (b[i] - mb); da += (a[i] - ma) ** 2; db += (b[i] - mb) ** 2; }
+    return n / Math.sqrt(da * db || 1);
+  }
+  // fifths for major tonic pitch class (prefer common spellings)
+  const MAJ_FIFTHS = { 0: 0, 7: 1, 2: 2, 9: 3, 4: 4, 11: 5, 6: -6, 1: -5, 8: -4, 3: -3, 10: -2, 5: -1 };
+  function estimateKey(notes) {
+    const h = new Array(12).fill(0);
+    for (const n of notes) h[((n.midi % 12) + 12) % 12] += n.end - n.start;
+    let best = { r: -2 };
+    for (let t = 0; t < 12; t++) {
+      const rot = i => h[(i + t) % 12];
+      const v = Array.from({ length: 12 }, (_, i) => rot(i));
+      const rM = corr(v, KS_MAJ), rm = corr(v, KS_MIN);
+      if (rM > best.r) best = { r: rM, tonic: t, mode: 'major' };
+      if (rm > best.r) best = { r: rm, tonic: t, mode: 'minor' };
+    }
+    const relMaj = best.mode === 'major' ? best.tonic : (best.tonic + 3) % 12;
+    return { tonic: best.tonic, mode: best.mode, fifths: MAJ_FIFTHS[relMaj] };
+  }
+  const NAMES_SHARP = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+  const NAMES_FLAT = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B'];
+  function keyName(fifths, mode) {
+    const majTonic = ((fifths * 7) % 12 + 12) % 12;
+    const tonic = mode === 'minor' ? (majTonic + 9) % 12 : majTonic;
+    const names = fifths < 0 ? NAMES_FLAT : NAMES_SHARP;
+    return names[tonic] + (mode === 'minor' ? ' minor' : ' major');
+  }
+
+  // ---------- quantize ----------
+  // Returns events on a 16th-note grid: {midi|null, pos, dur} in 16ths.
+  function quantize(notes, opts) {
+    const bpm = opts.bpm, grid = opts.grid || 2; // grid in 16ths (2 = eighth notes)
+    const sixteenth = 60 / bpm / 4;
+    const t0 = notes.length ? notes[0].start : 0;
+    const q = t => Math.round((t - t0) / sixteenth / grid) * grid;
+    const ev = [];
+    let cursor = 0;
+    notes.forEach((n, i) => {
+      let s = Math.max(q(n.start), cursor);
+      let e = q(n.end);
+      const nextS = i + 1 < notes.length ? q(notes[i + 1].start) : null;
+      // humming is mostly legato: close small gaps
+      if (nextS !== null && nextS - e <= Math.max(grid, 2)) e = nextS;
+      if (e <= s) e = s + grid;
+      if (nextS !== null && e > nextS && nextS > s) e = nextS;
+      if (s > cursor) ev.push({ midi: null, pos: cursor, dur: s - cursor });
+      ev.push({ midi: n.midi, pos: s, dur: e - s });
+      cursor = e;
+    });
+    return ev;
+  }
+
+  // ---------- MusicXML ----------
+  const STEP_SHARP = [['C', 0], ['C', 1], ['D', 0], ['D', 1], ['E', 0], ['F', 0], ['F', 1], ['G', 0], ['G', 1], ['A', 0], ['A', 1], ['B', 0]];
+  const STEP_FLAT = [['C', 0], ['D', -1], ['D', 0], ['E', -1], ['E', 0], ['F', 0], ['G', -1], ['G', 0], ['A', -1], ['A', 0], ['B', -1], ['B', 0]];
+  function spell(midi, fifths) {
+    const pc = ((midi % 12) + 12) % 12;
+    const [step, alter] = (fifths < 0 ? STEP_FLAT : STEP_SHARP)[pc];
+    let octave = Math.floor(midi / 12) - 1;
+    return { step, alter, octave };
+  }
+  // durations in 16ths that are a single written note
+  const SIMPLE = { 16: ['whole', 0], 12: ['half', 1], 8: ['half', 0], 6: ['quarter', 1], 4: ['quarter', 0], 3: ['eighth', 1], 2: ['eighth', 0], 1: ['16th', 0] };
+  function splitDur(len, posInBar, beatLen) {
+    // break a span into writable pieces, preferring to split on beats
+    const parts = [];
+    let p = posInBar;
+    while (len > 0) {
+      let take = null;
+      for (const d of [16, 12, 8, 6, 4, 3, 2, 1]) {
+        if (d > len) continue;
+        // avoid notes that straddle a beat unless they start on a beat
+        const startsOnBeat = p % beatLen === 0;
+        if (!startsOnBeat && (p % beatLen) + d > beatLen && d !== 1) {
+          const toBeat = beatLen - (p % beatLen);
+          if (d !== toBeat) continue;
+        }
+        if (SIMPLE[d][1] === 1 && !startsOnBeat && d > 3) continue;
+        take = d; break;
+      }
+      if (!take) take = 1;
+      parts.push(take); p += take; len -= take;
+    }
+    return parts;
+  }
+  function toMusicXML(events, opts) {
+    const beats = opts.beats || 4, beatType = opts.beatType || 4;
+    const barLen = beats * 16 / beatType;                 // in 16ths
+    const beatLen = beatType === 8 && beats % 3 === 0 ? 6 : 16 / beatType;
+    const fifths = opts.fifths || 0, mode = opts.mode || 'major';
+    const clef = opts.clef || 'treble';
+    const title = esc(opts.title || 'Hummed melody');
+    // lay events into measures, splitting across barlines
+    const total = events.length ? events[events.length - 1].pos + events[events.length - 1].dur : 0;
+    const nBars = Math.max(1, Math.ceil(total / barLen));
+    const bars = Array.from({ length: nBars }, () => []);
+    for (const e of events) {
+      let pos = e.pos, left = e.dur;
+      while (left > 0) {
+        const b = Math.floor(pos / barLen), inBar = pos - b * barLen;
+        const take = Math.min(left, barLen - inBar);
+        bars[b].push({ midi: e.midi, pos: inBar, dur: take, tieStart: left > take, tieStop: pos > e.pos });
+        pos += take; left -= take;
+      }
+    }
+    // pad final bar
+    const last = bars[nBars - 1];
+    const lastEnd = last.length ? last[last.length - 1].pos + last[last.length - 1].dur : 0;
+    if (lastEnd < barLen) last.push({ midi: null, pos: lastEnd, dur: barLen - lastEnd });
+    let x = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' +
+      '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n' +
+      '<score-partwise version="4.0">\n' +
+      `  <work><work-title>${title}</work-title></work>\n` +
+      '  <identification><encoding><software>Hum to Score</software></encoding></identification>\n' +
+      '  <part-list><score-part id="P1"><part-name>Melody</part-name></score-part></part-list>\n' +
+      '  <part id="P1">\n';
+    bars.forEach((bar, bi) => {
+      x += `    <measure number="${bi + 1}">\n`;
+      if (bi === 0) {
+        x += '      <attributes><divisions>4</divisions>' +
+          `<key><fifths>${fifths}</fifths><mode>${mode}</mode></key>` +
+          `<time><beats>${beats}</beats><beat-type>${beatType}</beat-type></time>` +
+          (clef === 'bass' ? '<clef><sign>F</sign><line>4</line></clef>'
+            : clef === 'treble8vb' ? '<clef><sign>G</sign><line>2</line><clef-octave-change>-1</clef-octave-change></clef>'
+              : '<clef><sign>G</sign><line>2</line></clef>') +
+          '</attributes>\n';
+        if (opts.bpm) x += `      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${opts.bpm}</per-minute></metronome></direction-type><sound tempo="${opts.bpm}"/></direction>\n`;
+      }
+      // whole-bar rest
+      if (bar.length === 1 && bar[0].midi === null && bar[0].dur === barLen) {
+        x += `      <note><rest measure="yes"/><duration>${barLen}</duration></note>\n`;
+      } else {
+        for (const e of bar) {
+          const parts = splitDur(e.dur, e.pos, beatLen);
+          parts.forEach((d, pi) => {
+            const [type, dot] = SIMPLE[d];
+            const tStart = e.midi !== null && (pi < parts.length - 1 || e.tieStart);
+            const tStop = e.midi !== null && (pi > 0 || e.tieStop);
+            x += '      <note>';
+            if (e.midi === null) x += '<rest/>';
+            else {
+              const s = spell(e.midi, fifths);
+              x += `<pitch><step>${s.step}</step>${s.alter ? `<alter>${s.alter}</alter>` : ''}<octave>${s.octave}</octave></pitch>`;
+            }
+            x += `<duration>${d}</duration>`;
+            if (tStop) x += '<tie type="stop"/>';
+            if (tStart) x += '<tie type="start"/>';
+            x += `<voice>1</voice><type>${type}</type>${dot ? '<dot/>' : ''}`;
+            if (tStop || tStart) x += `<notations>${tStop ? '<tied type="stop"/>' : ''}${tStart ? '<tied type="start"/>' : ''}</notations>`;
+            x += '</note>\n';
+          });
+        }
+      }
+      if (bi === nBars - 1) x += '      <barline location="right"><bar-style>light-heavy</bar-style></barline>\n';
+      x += '    </measure>\n';
+    });
+    x += '  </part>\n</score-partwise>\n';
+    return x;
+  }
+  function esc(s) { return String(s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c])); }
+
+  // ---------- MIDI ----------
+  function toMIDI(events, opts) {
+    const ppq = 480, tick = ppq / 4; // per 16th
+    const bytes = [];
+    const vlq = v => { const b = [v & 0x7f]; while ((v >>= 7)) b.unshift((v & 0x7f) | 0x80); return b; };
+    const trk = [];
+    const us = Math.round(60000000 / opts.bpm);
+    trk.push(0, 0xff, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255);
+    const beatType = opts.beatType || 4;
+    trk.push(0, 0xff, 0x58, 4, opts.beats || 4, Math.log2(beatType), 24, 8);
+    trk.push(0, 0xc0, 0x00); // piano
+    let now = 0;
+    for (const e of events) {
+      if (e.midi === null) continue;
+      const on = e.pos * tick, off = (e.pos + e.dur) * tick;
+      trk.push(...vlq(on - now), 0x90, e.midi, 90); now = on;
+      trk.push(...vlq(off - now), 0x80, e.midi, 0); now = off;
+    }
+    trk.push(0, 0xff, 0x2f, 0);
+    const u32 = v => [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255];
+    bytes.push(0x4d, 0x54, 0x68, 0x64, ...u32(6), 0, 0, 0, 1, (ppq >> 8) & 255, ppq & 255);
+    bytes.push(0x4d, 0x54, 0x72, 0x6b, ...u32(trk.length), ...trk);
+    return new Uint8Array(bytes);
+  }
+
+  // ---------- ZIP (stored, no compression) ----------
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(b) { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+  function zip(files) { // [{name, data:Uint8Array}]
+    const enc = new TextEncoder();
+    const chunks = [], central = [];
+    let offset = 0;
+    const u16 = v => [v & 255, (v >> 8) & 255], u32 = v => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    for (const f of files) {
+      const name = enc.encode(f.name), crc = crc32(f.data), size = f.data.length;
+      const head = [0x50, 0x4b, 3, 4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0)];
+      chunks.push(new Uint8Array(head), name, f.data);
+      central.push(new Uint8Array([0x50, 0x4b, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), name);
+      offset += head.length + name.length + size;
+    }
+    const cdSize = central.reduce((s, c) => s + c.length, 0);
+    const end = new Uint8Array([0x50, 0x4b, 5, 6, 0, 0, 0, 0, ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), 0, 0]);
+    const all = [...chunks, ...central, end];
+    const out = new Uint8Array(all.reduce((s, c) => s + c.length, 0));
+    let p = 0; for (const c of all) { out.set(c, p); p += c.length; }
+    return out;
+  }
+
+  function chooseClef(notes) {
+    if (!notes.length) return 'treble';
+    const m = notes.map(n => n.midi).sort((a, b) => a - b)[notes.length >> 1];
+    return m < 57 ? 'treble8vb' : 'treble'; // low hums read best an octave down
+  }
+
+  function analyze(channels, sampleRate, opts) {
+    const { samples, sr } = prepare(channels, sampleRate);
+    const track = trackPitch(samples, sr, opts);
+    const seg = segment(track, opts);
+    return { notes: seg.notes, tuningCents: seg.tuningCents, track };
+  }
+
+  const api = { prepare, trackPitch, segment, estimateTempo, estimateKey, keyName, quantize, toMusicXML, toMIDI, zip, chooseClef, analyze };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HumEngine = api;
+})(typeof self !== 'undefined' ? self : this);
+
+</script>
+<script>
+(function () {
+  'use strict';
+  const SITE = true; // true when running on its own website (mic, downloads, home-screen app)
+  const E = window.HumEngine;
+  const $ = id => document.getElementById(id);
+  const state = { track: null, notes: [], tuning: 0, auto: null, events: [], xml: '', isExample: false, audioUrl: null };
+
+  // ---- key menu ----
+  const KEYS = [[0,'major'],[1,'major'],[2,'major'],[3,'major'],[4,'major'],[5,'major'],[6,'major'],[-1,'major'],[-2,'major'],[-3,'major'],[-4,'major'],[-5,'major'],[-6,'major'],
+    [0,'minor'],[1,'minor'],[2,'minor'],[3,'minor'],[4,'minor'],[5,'minor'],[-1,'minor'],[-2,'minor'],[-3,'minor'],[-4,'minor'],[-5,'minor']];
+  const keySel = $('key');
+  keySel.innerHTML = '<option value="auto">Automatic</option>' + KEYS.map(([f, m]) => `<option value="${f},${m}">${E.keyName(f, m)}</option>`).join('');
+
+  function setStatus(msg, err) { const s = $('status'); s.textContent = msg; s.classList.toggle('err', !!err); }
+
+  // ---- audio input ----
+  let actx = null;
+  const ctx = () => (actx = actx || new (window.AudioContext || window.webkitAudioContext)());
+
+  async function handleArrayBuffer(buf, label, isExample) {
+    setStatus('Listening to ' + label + '…');
+    await new Promise(r => setTimeout(r, 30));
+    let audio;
+    try {
+      audio = await new Promise((res, rej) => { const p = ctx().decodeAudioData(buf.slice(0), res, rej); if (p && p.then) p.then(res, rej); });
+    } catch (e) {
+      setStatus("That file couldn't be read as audio. Try an .m4a, .mp3 or .wav file.", true); return;
+    }
+    const chans = []; for (let c = 0; c < audio.numberOfChannels; c++) chans.push(audio.getChannelData(c));
+    const detail = parseFloat($('detail').value);
+    const { samples, sr } = E.prepare(chans, audio.sampleRate);
+    state.track = E.trackPitch(samples, sr);
+    state.isExample = isExample;
+    resegment(detail, true);
+    if (!state.notes.length) { setStatus("No clear notes found. Hum a little louder and closer to the mic, then try again.", true); return; }
+    setStatus(`Found ${state.notes.length} notes in ${audio.duration.toFixed(1)} s of audio.`);
+  }
+
+  function resegment(detail, fresh) {
+    const seg = E.segment(state.track, { minNoteSec: detail });
+    state.notes = seg.notes; state.tuning = seg.tuningCents;
+    if (fresh) {
+      state.auto = { bpm: E.estimateTempo(state.notes), key: E.estimateKey(state.notes) };
+      $('bpm').value = state.auto.bpm;
+    }
+    rebuild();
+  }
+
+  $('file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    setOrig(URL.createObjectURL(f));
+    await handleArrayBuffer(await f.arrayBuffer(), '“' + f.name + '”', false);
+    e.target.value = '';
+  });
+
+  // Recording: works when the page is opened in a normal browser tab; previews may block the microphone.
+  let rec = null, chunks = [];
+  $('rec').addEventListener('click', async () => {
+    if (rec && rec.state === 'recording') { rec.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+      chunks = []; rec = new MediaRecorder(stream);
+      rec.ondataavailable = ev => ev.data.size && chunks.push(ev.data);
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        $('rec').classList.remove('recording'); $('rec-label').textContent = 'Record';
+        const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+        setOrig(URL.createObjectURL(blob));
+        await handleArrayBuffer(await blob.arrayBuffer(), 'your recording', false);
+      };
+      rec.start(); $('rec').classList.add('recording'); $('rec-label').textContent = 'Stop recording';
+      setStatus('Recording… hum your melody, then tap Stop recording.');
+    } catch (e) {
+      setStatus(SITE ? "Hum to Score needs the microphone. Allow it when asked, or turn it on in Settings → Apps → Safari → Microphone." : "The microphone isn't available here. Record a voice memo instead and choose it with Choose a recording.", true);
+    }
+  });
+
+  function setOrig(url) { if (state.audioUrl) URL.revokeObjectURL(state.audioUrl); state.audioUrl = url; $('orig').src = url; }
+
+  // ---- example hum (Ode to Joy, public domain), synthesized with scoops, vibrato and a flat tuning ----
+  function exampleWav() {
+    const sr = 22050, bpm = 104, beat = 60 / bpm, D = 62;
+    const m = [[D+4,1],[D+4,1],[D+5,1],[D+7,1],[D+7,1],[D+5,1],[D+4,1],[D+2,1],[D,1],[D,1],[D+2,1],[D+4,1],[D+4,1.5],[D+2,0.5],[D+2,2],
+               [D+4,1],[D+4,1],[D+5,1],[D+7,1],[D+7,1],[D+5,1],[D+4,1],[D+2,1],[D,1],[D,1],[D+2,1],[D+4,1],[D+2,1.5],[D,0.5],[D,2]];
+    const total = m.reduce((s, n) => s + n[1], 0) * beat + 0.8;
+    const x = new Float32Array(Math.ceil(total * sr));
+    let t = 0.3, ph = 0;
+    for (const [midi, b] of m) {
+      const n0 = Math.round(t * sr), len = Math.round(b * beat * 0.9 * sr);
+      const f = 440 * Math.pow(2, (midi - 69 - 0.25) / 12);
+      for (let i = 0; i < len; i++) {
+        const tt = i / sr, scoop = tt < 0.05 ? -0.6 * (1 - tt / 0.05) : 0;
+        const vib = 0.12 * Math.sin(2 * Math.PI * 5.3 * tt) * Math.min(1, tt / 0.3);
+        ph += 2 * Math.PI * f * Math.pow(2, (scoop + vib) / 12) / sr;
+        const env = Math.min(1, tt / 0.03) * Math.min(1, (len / sr - tt) / 0.06);
+        x[n0 + i] += 0.25 * env * (Math.sin(ph) + 0.45 * Math.sin(2 * ph) + 0.2 * Math.sin(3 * ph));
+      }
+      t += b * beat;
+    }
+    const buf = new ArrayBuffer(44 + x.length * 2), v = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, x.length * 2, true);
+    for (let i = 0; i < x.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
+    return buf;
+  }
+  async function loadExample() {
+    const wav = exampleWav();
+    setOrig(URL.createObjectURL(new Blob([wav], { type: 'audio/wav' })));
+    $('title').value = 'Example: Ode to Joy (hummed)';
+    await handleArrayBuffer(wav, 'the example', true);
+    setStatus('Showing the example. Choose your own recording above to replace it.');
+  }
+  $('demo').addEventListener('click', loadExample);
+
+  // ---- build score from current settings ----
+  function settings() {
+    const [beats, beatType] = $('ts').value.split('/').map(Number);
+    let fifths, mode;
+    if (keySel.value === 'auto') ({ fifths, mode } = state.auto.key); else { const [f, m] = keySel.value.split(','); fifths = +f; mode = m; }
+    const clef = $('clef').value === 'auto' ? E.chooseClef(state.notes) : $('clef').value;
+    return { bpm: Math.max(30, Math.min(240, +$('bpm').value || 100)), beats, beatType, fifths, mode, clef, grid: +$('grid').value, title: $('title').value.trim() || 'Hummed melody', shift: +$('shift').value };
+  }
+
+  let osmd = null;
+  async function rebuild() {
+    if (!state.notes.length) return;
+    const s = settings();
+    let ev = E.quantize(state.notes, { bpm: s.bpm, grid: s.grid });
+    // start the melody on a later beat, padding with a leading rest
+    const beat16 = s.beatType === 8 && s.beats % 3 === 0 ? 6 : 16 / s.beatType;
+    const barLen = s.beats * 16 / s.beatType;
+    if (s.shift > 0) {
+      const lead = s.shift * beat16;
+      if (lead < barLen) ev = [{ midi: null, pos: 0, dur: lead }, ...ev.map(e => ({ ...e, pos: e.pos + lead }))];
+    }
+    state.events = ev; state.s = s;
+    state.xml = E.toMusicXML(ev, s);
+    renderChips(s);
+    $('score-title').textContent = s.title;
+    drawTrace();
+    await renderScore();
+  }
+
+  function renderChips(s) {
+    const n = state.events.filter(e => e.midi !== null).length;
+    const bars = Math.ceil((state.events.at(-1).pos + state.events.at(-1).dur) / (s.beats * 16 / s.beatType));
+    const c = state.tuning;
+    $('chips').innerHTML =
+      (state.isExample ? '<span class="chip example">Example</span>' : '') +
+      `<span class="chip"><b>${E.keyName(s.fifths, s.mode)}</b></span>` +
+      `<span class="chip">Tempo <b>${s.bpm}</b> bpm</span>` +
+      `<span class="chip"><b>${n}</b> notes · <b>${bars}</b> bars</span>` +
+      `<span class="chip" title="How far your hum sat from standard A440 tuning">Tuning ${c > 0 ? '+' : ''}${c}¢</span>`;
+  }
+
+  async function renderScore() {
+    const el = $('sheet');
+    if (!window.opensheetmusicdisplay) { el.innerHTML = '<p class="hint" style="padding:16px;color:#444">The score viewer could not load. The exports below still work.</p>'; return; }
+    try {
+      if (!osmd) osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(el, { autoResize: true, backend: 'svg', drawTitle: false, drawPartNames: false, drawingParameters: 'compacttight', drawCredits: false });
+      await osmd.load(state.xml);
+      osmd.render();
+    } catch (e) { el.innerHTML = '<p class="hint" style="padding:16px;color:#444">This score could not be drawn. Try a different tempo or shortest note.</p>'; console.error(e); }
+  }
+
+  // ---- pitch trace ----
+  function drawTrace() {
+    const cv = $('trace'), dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight; if (!W) return;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext('2d'); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+    const cs = getComputedStyle(document.documentElement);
+    const fr = state.track.frames.filter(f => f.voiced);
+    if (!fr.length) return;
+    const t0 = state.track.frames[0].t, t1 = state.track.frames.at(-1).t;
+    let lo = Math.min(...state.notes.map(n => n.midi)) - 3, hi = Math.max(...state.notes.map(n => n.midi)) + 3;
+    const X = t => 8 + (t - t0) / (t1 - t0) * (W - 16), Y = m => H - 10 - (m - lo) / (hi - lo) * (H - 20);
+    g.strokeStyle = cs.getPropertyValue('--line'); g.lineWidth = 1;
+    for (let m = Math.ceil(lo); m <= hi; m++) if (m % 12 === 0) { g.beginPath(); g.moveTo(0, Y(m)); g.lineTo(W, Y(m)); g.stroke(); g.fillStyle = cs.getPropertyValue('--muted'); g.font = '10px ' + cs.getPropertyValue('--font-mono'); g.fillText('C' + (m / 12 - 1), 4, Y(m) - 3); }
+    g.fillStyle = cs.getPropertyValue('--accent');
+    for (const n of state.notes) g.fillRect(X(n.start), Y(n.midi) - 3, Math.max(2, X(n.end) - X(n.start)), 6);
+    g.fillStyle = cs.getPropertyValue('--trace');
+    const tc = state.tuning / 100;
+    for (const f of fr) if (f.midiS - tc > lo && f.midiS - tc < hi) g.fillRect(X(f.t), Y(f.midiS - tc) - 0.75, 1.5, 1.5);
+  }
+  window.addEventListener('resize', () => state.track && drawTrace());
+
+  // ---- playback ----
+  let playing = [];
+  function stop() { playing.forEach(o => { try { o.stop(); } catch (e) {} }); playing = []; }
+  $('play').addEventListener('click', () => {
+    if (!state.events.length) return;
+    stop();
+    const a = ctx(); a.resume && a.resume();
+    const sec = 60 / state.s.bpm / 4, start = a.currentTime + 0.1;
+    for (const e of state.events) {
+      if (e.midi === null) continue;
+      const o = a.createOscillator(), gn = a.createGain();
+      o.type = 'triangle'; o.frequency.value = 440 * Math.pow(2, (e.midi - 69) / 12);
+      const t = start + e.pos * sec, d = e.dur * sec;
+      gn.gain.setValueAtTime(0, t); gn.gain.linearRampToValueAtTime(0.25, t + 0.015);
+      gn.gain.exponentialRampToValueAtTime(0.08, t + Math.max(0.05, d * 0.9)); gn.gain.linearRampToValueAtTime(0, t + d);
+      o.connect(gn).connect(a.destination); o.start(t); o.stop(t + d + 0.02); playing.push(o);
+    }
+  });
+  $('stop').addEventListener('click', stop);
+
+  // ---- settings ----
+  ['ts', 'grid', 'clef', 'shift'].forEach(id => $(id).addEventListener('change', rebuild));
+  keySel.addEventListener('change', rebuild);
+  $('bpm').addEventListener('change', rebuild);
+  $('title').addEventListener('change', rebuild);
+  $('half').addEventListener('click', () => { $('bpm').value = Math.max(30, Math.round(+$('bpm').value / 2)); rebuild(); });
+  $('dbl').addEventListener('click', () => { $('bpm').value = Math.min(240, Math.round(+$('bpm').value * 2)); rebuild(); });
+  $('detail').addEventListener('change', () => state.track && resegment(parseFloat($('detail').value), false));
+
+  // ---- export ----
+  const safeName = () => (state.s.title || 'melody').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'melody';
+  function exStatus(m, ok) { const s = $('ex-status'); s.textContent = m; s.className = 'status' + (ok ? ' ok' : ''); }
+  $('copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(state.xml); exStatus('MusicXML copied. Paste it into a text file saved as .musicxml.', true); }
+    catch (e) { exStatus("Copying isn't allowed here. Use the download button instead."); }
+  });
+  let downloads = null;
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then(d => { downloads = d; $('dl').hidden = !d; }).catch(() => {});
+  }
+  $('dl').addEventListener('click', async () => {
+    if (!downloads) return;
+    const name = safeName();
+    const data = E.zip([
+      { name: name + '.musicxml', data: new TextEncoder().encode(state.xml) },
+      { name: name + '.mid', data: E.toMIDI(state.events, state.s) }
+    ]);
+    try { await downloads.save({ filename: name + '.zip', data: new Blob([data]) }); exStatus('Saved. Unzip it to get the .musicxml and .mid files.', true); }
+    catch (e) { if (e && e.code !== 'declined') exStatus("The download didn't go through. Try again in a moment."); }
+  });
+
+  // On its own website: share sheet (iPhone/iPad) and plain downloads.
+  const exportFiles = () => {
+    const name = safeName();
+    return [
+      new File([state.xml], name + '.musicxml', { type: 'application/vnd.recordare.musicxml+xml' }),
+      new File([E.toMIDI(state.events, state.s)], name + '.mid', { type: 'audio/midi' })
+    ];
+  };
+  function saveFile(file) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file); a.download = file.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+  if (!SITE) $('rec').hidden = true; // Claude's preview blocks the microphone
+  if (SITE) {
+    $('dlxml').hidden = false; $('dlmid').hidden = false;
+    try { if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 't.mid', { type: 'audio/midi' })] })) $('share').hidden = false; } catch (e) {}
+    $('share').addEventListener('click', async () => {
+      try { await navigator.share({ files: exportFiles(), title: state.s.title }); }
+      catch (e) { if (e && e.name !== 'AbortError') exStatus("Sharing didn't work here. Use the download buttons instead."); }
+    });
+    $('dlxml').addEventListener('click', () => saveFile(exportFiles()[0]));
+    $('dlmid').addEventListener('click', () => saveFile(exportFiles()[1]));
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  loadExample();
+})();
+</script>
+</body>
+</html>
