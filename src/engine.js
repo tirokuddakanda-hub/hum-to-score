@@ -52,6 +52,16 @@
         let best = 1e9;
         for (let t = Math.max(2, tauMin); t < tauMax; t++) if (d[t] < best) { best = d[t]; tau = t; }
       }
+      // Octave check: a hummed "mmm" has a weak fundamental, so YIN sometimes locks onto
+      // twice the true period (an octave too low). If half (or a third) of the period also
+      // matches well, the higher pitch is the real one.
+      for (const k of [2, 3]) {
+        const c = Math.round(tau / k);
+        if (c < Math.max(2, tauMin)) continue;
+        let bt = c;
+        for (let j = Math.max(2, c - 2); j <= Math.min(tauMax - 1, c + 2); j++) if (d[j] < d[bt]) bt = j;
+        if (d[bt] < 0.3 && d[bt] < d[tau] + 0.12) { tau = bt; break; }
+      }
       aper = d[tau];
       // parabolic interpolation
       let ft = tau;
@@ -77,9 +87,36 @@
       w.sort((a, b) => a - b);
       sm[i] = w[w.length >> 1];
     }
-    // octave-jump repair: pull values that are ~12 off the local median back
     frames.forEach((f, i) => { f.midiS = sm[i]; });
+    fixOctaves(frames);
     return { frames, hopSec: hop / sr };
+  }
+
+  // Any reading that sits an octave (or two) away from what you were humming around it
+  // gets moved by whole octaves to the nearest fit. Two passes, half a second each way.
+  function fixOctaves(frames) {
+    const R = 50;
+    for (let pass = 0; pass < 2; pass++) {
+      const ref = new Array(frames.length);
+      for (let i = 0; i < frames.length; i++) {
+        if (!frames[i].voiced) continue;
+        const w = [];
+        for (let k = -R; k <= R; k++) {
+          const f = frames[i + k];
+          if (f && f.voiced) for (let r = 0; r < (f.aper < 0.1 ? 2 : 1); r++) w.push(f.midiS); // trust clear frames more
+        }
+        w.sort((a, b) => a - b);
+        ref[i] = w[w.length >> 1];
+      }
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i];
+        if (!f.voiced) continue;
+        const k = Math.round((ref[i] - f.midiS) / 12);
+        if (k !== 0 && Math.abs(f.midiS + 12 * k - ref[i]) < Math.abs(f.midiS - ref[i])) {
+          f.midiS += 12 * k; f.midi += 12 * k;
+        }
+      }
+    }
   }
 
   // ---------- note segmentation ----------
@@ -95,7 +132,16 @@
     }
     const tuning = Math.atan2(sy, sx) / (2 * Math.PI); // semitones, -0.5..0.5
     // per-frame pitch label
-    const lab = frames.map(f => f.voiced ? Math.round(f.midiS - tuning) : null);
+    // Hysteresis: stay on the current note until the pitch is clearly (0.75 semitone) away,
+    // so a voice wobbling on the edge between two notes doesn't flicker between them.
+    const lab = [];
+    let cur = null;
+    for (const f of frames) {
+      if (!f.voiced) { lab.push(null); cur = null; continue; }
+      const p = f.midiS - tuning;
+      if (cur === null || Math.abs(p - cur) > 0.75) cur = Math.round(p);
+      lab.push(cur);
+    }
     // run-length encode
     let segs = [];
     for (let i = 0; i < lab.length; i++) {
@@ -111,6 +157,24 @@
       changed = false;
       for (let i = 0; i < segs.length; i++) {
         const s = segs[i], len = s.end - s.start;
+        const prevS = segs[i - 1], nextS = segs[i + 1];
+        // a short note whose pitch lies between its neighbours is a slide, not a note
+        const isGlide = s.p !== null && len < Math.max(minFrames, Math.round(0.15 / hopSec)) &&
+          prevS && nextS && prevS.p !== null && nextS.p !== null && prevS.end === s.start && nextS.start === s.end &&
+          (s.p - prevS.p) * (nextS.p - s.p) > 0;
+        // a short sound with silence on both sides is a breath or a click
+        const isBlip = s.p !== null && len < Math.round(0.12 / hopSec) &&
+          (!prevS || prevS.p === null) && (!nextS || nextS.p === null);
+        if (isBlip) { s.p = null; changed = true; break; }
+        // a short wobble away and back to the same note belongs to that note
+        const isDetour = s.p !== null && len < Math.round(0.12 / hopSec) && prevS && nextS &&
+          prevS.p !== null && prevS.p === nextS.p && prevS.end === s.start && nextS.start === s.end;
+        if (isDetour) {
+          prevS.end = nextS.end; segs.splice(i, 2); changed = true; break;
+        }
+        if (isGlide) {
+          nextS.start = s.start; segs.splice(i, 1); changed = true; break;
+        }
         const isShortVoiced = s.p !== null && len < minFrames;
         const isShortGap = s.p === null && len < gapFrames && i > 0 && i < segs.length - 1;
         if (!isShortVoiced && !isShortGap) continue;
